@@ -87,7 +87,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🧠 AI က အကောင်းဆုံးဖြေကြားပေးပါမယ်။
 
 ╔══════════════════════════════════════╗
-║  /reset → 🗑️ Chat History ရှင်းရန်  ║
+║  /reset → 🗑️ Chat History ရှင်းရန် ║
 ╚══════════════════════════════════════╝
 """
 
@@ -104,7 +104,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reset_message = """
 ╔══════════════════════════════════════╗
-║          🗑️ 𝗖𝗛𝗔𝗧 𝗥𝗘𝗦𝗘𝗧          ║
+║          🗑️ 𝗖𝗛𝗔𝗧 𝗥𝗘𝗦𝗘𝗧         ║
 ╚══════════════════════════════════════╝
 
 ✅ Chat history ရှင်းပြီးပါပြီ။
