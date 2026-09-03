@@ -1,38 +1,46 @@
+# -*- coding: utf-8 -*-
+
 import os
 import logging
+
 from telegram import Update
 from telegram.ext import (
-ApplicationBuilder,
-CommandHandler,
-MessageHandler,
-ContextTypes,
-filters,
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
+
 from groq import Groq
 
+
 TELEGRAM_BOT_TOKEN = os.environ.get(
-"TELEGRAM_BOT_TOKEN",
-"YOUR_TELEGRAM_BOT_TOKEN_HERE"
+    "TELEGRAM_BOT_TOKEN",
+    "YOUR_TELEGRAM_BOT_TOKEN_HERE"
 )
 
 GROQ_API_KEY = os.environ.get(
-"GROQ_API_KEY",
-"YOUR_GROQ_API_KEY_HERE"
+    "GROQ_API_KEY",
+    "YOUR_GROQ_API_KEY_HERE"
 )
 
+
 SYSTEM_PROMPT = (
-"သင်သည် Telegram bot တစ်ခုအတွက် အထောက်အကူပြု AI chatbot တစ်ခုဖြစ်သည်။ "
-"မြန်မာဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
+    "သင်သည် Telegram bot တစ်ခုအတွက် အထောက်အကူပြု AI chatbot တစ်ခုဖြစ်သည်။ "
+    "မြန်မာဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
 )
+
 
 MODEL_NAME = "openai/gpt-oss-20b"
 
+
 logging.basicConfig(
-format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 
-logger = logging.getLogger(name)
+logger = logging.getLogger(__name__)
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
@@ -40,23 +48,24 @@ user_histories: dict[int, list[dict]] = {}
 
 MAX_HISTORY_MESSAGES = 10
 
-==============================
 
-🤖 START / WELCOME MESSAGE
-
-==============================
+# ==============================
+# START / WELCOME MESSAGE
+# ==============================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-user = update.effective_user
-chat_id = update.effective_chat.id
+    chat_id = update.effective_chat.id
+    user = update.effective_user
 
-user_histories[chat_id] = []
+    user_histories[chat_id] = []
 
-name = user.first_name if user and user.first_name else "User"
+    if user and user.first_name:
+        name = user.first_name
+    else:
+        name = "User"
 
-welcome_message = f"""
-
+    welcome_message = f"""
 ╔══════════════════════════════════════╗
 ║     🤖 𝙇𝙔𝙉𝙉 𝘼𝙄 𝘼𝙎𝙎𝙄𝙎𝙏𝘼𝙉𝙏 𝘽𝙊𝙏 🤖     ║
 ╚══════════════════════════════════════╝
@@ -68,7 +77,7 @@ welcome_message = f"""
 ├──────────────────────────────────────┤
 │ 👤 𝗖𝗿𝗲𝗮𝘁𝗶𝘃𝗲 𝗨𝘀𝗲𝗿: @ur_linn4u
 ├──────────────────────────────────────┤
-│ 📆 𝗖𝗿𝗲𝗮𝘁𝗶𝗻𝗴 𝗕𝗼𝘁 𝗗𝗮𝘁𝗲: 𝟭𝟳.𝟴.𝟮𝟬𝟮𝟲
+│ 📆 𝗖𝗿𝗲𝗮𝘁𝗶𝗻𝗴 𝗕𝗼𝘁 𝗗𝗮𝘁𝗲: 𝟭𝟳.𝟴.𝟮𝟬𝟮𝟬
 ├──────────────────────────────────────┤
 │ 🌐 𝗟𝗮𝗻𝗴𝘂𝗮𝗴𝗲: 𝗠𝗬𝗔𝗡𝗠𝗔𝗥
 ├──────────────────────────────────────┤
@@ -76,6 +85,7 @@ welcome_message = f"""
 └──────────────────────────────────────┘
 
 🤖 AI Assistant အဆင်သင့်ဖြစ်နေပါပြီ!
+
 💬 မေးချင်တာကို စာရိုက်ပြီး ပို့လိုက်ပါ။
 🧠 AI က အကောင်းဆုံးဖြေကြားပေးပါမယ်။
 
@@ -84,141 +94,154 @@ welcome_message = f"""
 ╚══════════════════════════════════════╝
 """
 
-await update.message.reply_text(welcome_message)
+    await update.message.reply_text(welcome_message)
 
-==============================
 
-🗑️ RESET CONVERSATION
-
-==============================
+# ==============================
+# RESET COMMAND
+# ==============================
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-chat_id = update.effective_chat.id
+    chat_id = update.effective_chat.id
 
-user_histories[chat_id] = []
+    user_histories[chat_id] = []
 
-await update.message.reply_text(
-    "╔══════════════════════════════╗\n"
-    "║       🗑️ 𝗖𝗛𝗔𝗧 𝗥𝗘𝗦𝗘𝗧       ║\n"
-    "╚══════════════════════════════╝\n\n"
-    "✅ Chat history ကို ရှင်းလိုက်ပါပြီ။\n"
-    "💬 စကားပြောမှုအသစ် စတင်နိုင်ပါပြီ။"
-)
+    reset_message = """
+╔══════════════════════════════════════╗
+║          🗑️ 𝗖𝗛𝗔𝗧 𝗥𝗘𝗦𝗘𝗧          ║
+╚══════════════════════════════════════╝
 
-==============================
+✅ Chat history ရှင်းပြီးပါပြီ။
 
-💬 AI MESSAGE HANDLER
+💬 စကားပြောမှုအသစ် စတင်နိုင်ပါပြီ။
+🤖 မေးချင်တာကို ဆက်မေးနိုင်ပါတယ်။
 
-==============================
+━━━━━━━━━━━━━━━
+👑 Creative by 𝗟𝗬𝗡𝗡 𝗔𝗜
+"""
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(reset_message)
 
-chat_id = update.effective_chat.id
-user_text = update.message.text
 
-history = user_histories.setdefault(chat_id, [])
+# ==============================
+# AI MESSAGE HANDLER
+# ==============================
 
-history.append({
-    "role": "user",
-    "content": user_text
-})
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
-history = history[-MAX_HISTORY_MESSAGES:]
+    chat_id = update.effective_chat.id
+    user_text = update.message.text
 
-await context.bot.send_chat_action(
-    chat_id=chat_id,
-    action="typing"
-)
+    history = user_histories.setdefault(chat_id, [])
 
-try:
+    history.append({
+        "role": "user",
+        "content": user_text
+    })
 
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        }
-    ] + history
+    history = history[-MAX_HISTORY_MESSAGES:]
 
-    response = groq_client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=messages,
-        max_tokens=1000,
+    await context.bot.send_chat_action(
+        chat_id=chat_id,
+        action="typing"
     )
 
-    reply_text = response.choices[0].message.content
+    try:
 
-except Exception as e:
+        messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            }
+        ] + history
 
-    logger.error(f"Groq API error: {e}")
+        response = groq_client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            max_tokens=1000,
+        )
 
-    await update.message.reply_text(
-        "တောင်းပန်ပါတယ်၊ အမှားတစ်ခုဖြစ်သွားပါတယ်။ "
-        "နောက်တစ်ခါ ထပ်ကြိုးစားကြည့်ပါ။"
-    )
+        reply_text = response.choices[0].message.content
 
-    return
+    except Exception as e:
 
-history.append({
-    "role": "assistant",
-    "content": reply_text
-})
+        logger.error(f"Groq API error: {e}")
 
-user_histories[chat_id] = history
+        error_message = """
+❌ တောင်းပန်ပါတယ်။
 
-# 👑 LYNN AI CREDIT
-credit = (
-    "\n\n"
-    "━━━━━━━━━━━━━━━\n"
-    "👑 Creative by 𝗟𝗬𝗡𝗡 𝗔𝗜"
-)
+AI Server မှာ အမှားတစ်ခု ဖြစ်သွားပါတယ်။
+ခဏနေပြီး ပြန်မေးကြည့်ပါ။
 
-await update.message.reply_text(
-    reply_text + credit
-)
+━━━━━━━━━━━━━━━
+👑 Creative by 𝗟𝗬𝗡𝗡 𝗔𝗜
+"""
 
-==============================
+        await update.message.reply_text(error_message)
 
-🚀 MAIN
+        return
 
-==============================
+    history.append({
+        "role": "assistant",
+        "content": reply_text
+    })
+
+    user_histories[chat_id] = history
+
+    credit = """
+    
+━━━━━━━━━━━━━━━
+👑 Creative by 𝗟𝗬𝗡𝗡 𝗔𝗜
+"""
+
+    final_reply = reply_text + credit
+
+    await update.message.reply_text(final_reply)
+
+
+# ==============================
+# MAIN APPLICATION
+# ==============================
 
 def main():
 
-if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
+    if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
+        raise SystemExit(
+            "TELEGRAM_BOT_TOKEN ကို Railway Variables ထဲမှာ ထည့်ပါ"
+        )
 
-    raise SystemExit(
-        "TELEGRAM_BOT_TOKEN ကို Railway Variables ထဲမှာ ထည့်ပါ"
+    if GROQ_API_KEY == "YOUR_GROQ_API_KEY_HERE":
+        raise SystemExit(
+            "GROQ_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ"
+        )
+
+    app = ApplicationBuilder().token(
+        TELEGRAM_BOT_TOKEN
+    ).build()
+
+    app.add_handler(
+        CommandHandler("start", start)
     )
 
-if GROQ_API_KEY == "YOUR_GROQ_API_KEY_HERE":
-
-    raise SystemExit(
-        "GROQ_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ"
+    app.add_handler(
+        CommandHandler("reset", reset)
     )
 
-app = ApplicationBuilder().token(
-    TELEGRAM_BOT_TOKEN
-).build()
-
-app.add_handler(
-    CommandHandler("start", start)
-)
-
-app.add_handler(
-    CommandHandler("reset", reset)
-)
-
-app.add_handler(
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_message
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message
+        )
     )
-)
 
-logger.info("🤖 LYNN AI Bot စတင် run နေပါပြီ...")
+    logger.info("LYNN AI Bot စတင် run နေပါပြီ...")
 
-app.run_polling()
+    app.run_polling()
 
-if name == "main":
-main()
+
+if __name__ == "__main__":
+    main()
