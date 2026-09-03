@@ -49,9 +49,7 @@ user_histories: dict[int, list[dict]] = {}
 MAX_HISTORY_MESSAGES = 10
 
 
-# ==============================
 # START / WELCOME MESSAGE
-# ==============================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -90,16 +88,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🧠 AI က အကောင်းဆုံးဖြေကြားပေးပါမယ်။
 
 ╔══════════════════════════════════════╗
-║               /reset → 🗑️ Chat History ရှင်းရန်                  ║
+║              /reset → 🗑️ Chat History ရှင်းရန်                   ║
 ╚══════════════════════════════════════╝
 """
 
     await update.message.reply_text(welcome_message)
 
 
-# ==============================
 # RESET COMMAND
-# ==============================
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -123,9 +119,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(reset_message)
 
 
-# ==============================
 # AI MESSAGE HANDLER
-# ==============================
 
 async def handle_message(
     update: Update,
@@ -202,9 +196,7 @@ AI Server မှာ အမှားတစ်ခု ဖြစ်သွားပ�
     await update.message.reply_text(final_reply)
 
 
-# ==============================
 # MAIN APPLICATION
-# ==============================
 
 def main():
 
