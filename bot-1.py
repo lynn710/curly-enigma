@@ -8,15 +8,17 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-import anthropic
+from groq import Groq
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN_HERE")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "YOUR_ANTHROPIC_API_KEY_HERE")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY_HERE")
 
 SYSTEM_PROMPT = (
     "သင်သည် Telegram bot တစ်ခုအတွက် အထောက်အကူပြု AI chatbot တစ်ခုဖြစ်သည်။ "
     "မြန်မာဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
 )
+
+MODEL_NAME = "llama-3.3-70b-versatile"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -24,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 user_histories: dict[int, list[dict]] = {}
 MAX_HISTORY_MESSAGES = 10
@@ -33,7 +35,7 @@ MAX_HISTORY_MESSAGES = 10
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_histories[update.effective_chat.id] = []
     await update.message.reply_text(
-        "မင်္ဂလာပါ! ကျွန်တော် AI chatbot ဖြစ်ပါတယ်။ ဘာမေးချင်လဲ မေးလို့ရပါတယ်။\n\n"
+        "မင်္ဂလာပါ! ကျွန်တော် LYNN X AI Bot ဖြစ်ပါတယ်။ ဘာမေးချင်လဲ မေးလို့ရပါတယ်။\n\n"
         "/reset - စကားပြော history ကို ပြန်ရှင်းရန်"
     )
 
@@ -54,15 +56,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
     try:
-        response = claude_client.messages.create(
-            model="claude-sonnet-4-6",
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+        response = groq_client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
             max_tokens=1000,
-            system=SYSTEM_PROMPT,
-            messages=history,
         )
-        reply_text = response.content[0].text
+        reply_text = response.choices[0].message.content
     except Exception as e:
-        logger.error(f"Claude API error: {e}")
+        logger.error(f"Groq API error: {e}")
         await update.message.reply_text(
             "တောင်းပန်ပါတယ်၊ အမှားတစ်ခုဖြစ်သွားပါတယ်။ နောက်တစ်ခါ ထပ်ကြိုးစားကြည့်ပါ။"
         )
@@ -77,8 +79,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
         raise SystemExit("TELEGRAM_BOT_TOKEN ကို Railway Variables ထဲမှာ ထည့်ပါ")
-    if ANTHROPIC_API_KEY == "YOUR_ANTHROPIC_API_KEY_HERE":
-        raise SystemExit("ANTHROPIC_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
+    if GROQ_API_KEY == "YOUR_GROQ_API_KEY_HERE":
+        raise SystemExit("GROQ_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
