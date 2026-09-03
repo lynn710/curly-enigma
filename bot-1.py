@@ -104,7 +104,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reset_message = """
 ╔══════════════════════════════════════╗
-║          🗑️ 𝗖𝗛𝗔𝗧 𝗥𝗘𝗦𝗘𝗧         ║
+║           🗑️ 𝗖𝗛𝗔𝗧 𝗥𝗘𝗦𝗘𝗧         ║
 ╚══════════════════════════════════════╝
 
 ✅ Chat history ရှင်းပြီးပါပြီ။
