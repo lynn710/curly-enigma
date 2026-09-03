@@ -18,7 +18,7 @@ SYSTEM_PROMPT = (
     "မြန်မာဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
 )
 
-MODEL_NAME = "llama-3.1-8b-instant"
+MODEL_NAME = "openai/gpt-oss-20b"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
