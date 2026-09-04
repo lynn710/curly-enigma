@@ -361,6 +361,13 @@ def main():
 
     app.add_handler(
         MessageHandler(
+            filters.PHOTO & filters.CaptionRegex(r'^/broadcast'),
+            broadcast
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             handle_message
         )
