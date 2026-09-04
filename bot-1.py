@@ -11,6 +11,8 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.constants import ParseMode
+from telegram.error import Forbidden, BadRequest
 
 from groq import Groq
 
@@ -25,13 +27,13 @@ GROQ_API_KEY = os.environ.get(
     "YOUR_GROQ_API_KEY_HERE"
 )
 
-# ⚠️ ဒီနေရာမှာ သင့် Telegram User ID ကို ထည့်ပါ (ဂဏန်းသက်သက်)
-ADMIN_ID = 6908674664  # <-- သင့် Admin ID ကို ဒီနေရာမှာ အစားထိုးပါ
+# Admin User ID
+ADMIN_ID = 6908674664
 
 
 SYSTEM_PROMPT = (
     "သင်သည် Telegram bot တစ်ခုအတွက် အထောက်အကူပြု AI chatbot တစ်ခုဖြစ်သည်။ "
-    "မြန်မာဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
+    "မြန်မာဘာသာနှင့်Englishဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
     "သင့်နာမည်မှာ LYNN AI ဖြစ်သည်။ "
     "User က 'မင်းဘယ်သူလဲ', 'မင်းနာမည်ကဘာလဲ', 'ဘယ် AI လဲ' ဟု မေးပါက "
     "'ကျွန်တော်က LYNN AI ပါ' ဟု ဖြေပါ။ "
@@ -56,7 +58,7 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 
 user_histories: dict[int, list[dict]] = {}
 
-# Total user tracking (admin ချည်း သိအောင်)
+# Total user tracking (admin ချည်းသိအောင်)
 all_user_ids: set[int] = set()
 
 MAX_HISTORY_MESSAGES = 10
@@ -71,7 +73,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_histories[chat_id] = []
 
-    # User ID ကို total user list ထဲ မှတ်ထားမယ်
     if user:
         all_user_ids.add(user.id)
 
@@ -142,7 +143,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     if not user or user.id != ADMIN_ID:
-        # Admin မဟုတ်ရင် ဘာမှ ပြန်မဖြေဘဲ ချန်ထားမယ် (secret)
         return
 
     total_users = len(all_user_ids)
@@ -161,6 +161,89 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(stats_message)
 
 
+# BROADCAST COMMAND (Admin ချည်း)
+# Usage:
+#   Text ပို့ချင်ရင်: /broadcast <စာသား>
+#   ပုံ ပို့ချင်ရင်: ပုံကို bot ဆီပို့ပြီး caption box ထဲမှာ /broadcast <caption> ရေးပါ
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user = update.effective_user
+
+    if not user or user.id != ADMIN_ID:
+        return
+
+    message = update.message
+
+    # Caption/Text ထဲက "/broadcast " အပိုင်းကို ဖြုတ်ပါ
+    if message.caption:
+        raw_text = message.caption
+    elif message.text:
+        raw_text = message.text
+    else:
+        raw_text = ""
+
+    parts = raw_text.split(maxsplit=1)
+    broadcast_text = parts[1] if len(parts) > 1 else ""
+
+    if not broadcast_text and not message.photo:
+        await update.message.reply_text(
+            "⚠️ Broadcast ပို့ရန် စာသား (သို့) ပုံ+caption လိုအပ်ပါသည်။\n\n"
+            "Text: /broadcast <စာသား>\n"
+            "Photo: ပုံပို့ပြီး caption ထဲ /broadcast <caption>"
+        )
+        return
+
+    success_count = 0
+    fail_count = 0
+
+    await update.message.reply_text(
+        f"📤 Broadcast စတင်ပေးပို့နေပါပြီ...\n"
+        f"👥 Total Users: {len(all_user_ids)}"
+    )
+
+    for uid in list(all_user_ids):
+        try:
+            if message.photo:
+                # အကြီးဆုံး resolution ပုံကို ယူပါ
+                photo_file_id = message.photo[-1].file_id
+                await context.bot.send_photo(
+                    chat_id=uid,
+                    photo=photo_file_id,
+                    caption=broadcast_text if broadcast_text else None,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=broadcast_text,
+                )
+            success_count += 1
+
+        except Forbidden:
+            # User က bot ကို block ထားခြင်း
+            fail_count += 1
+        except BadRequest:
+            fail_count += 1
+        except Exception as e:
+            logger.error(f"Broadcast error for {uid}: {e}")
+            fail_count += 1
+
+    report_message = f"""
+╔══════════════════════════════════════╗
+║        ✅ 𝗕𝗥𝗢𝗔𝗗𝗖𝗔𝗦𝗧 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘        ║
+╚══════════════════════════════════════╝
+
+✅ အောင်မြင်: {success_count}
+❌ မအောင်မြင်: {fail_count}
+👥 Total: {len(all_user_ids)}
+
+━━━━━━━━━━━━━━━
+👑 Admin Panel - 𝗟𝗬𝗡𝗡 𝗔𝗜
+"""
+
+    await update.message.reply_text(report_message)
+
+
 # AI MESSAGE HANDLER
 
 async def handle_message(
@@ -172,7 +255,6 @@ async def handle_message(
     user_text = update.message.text
     user = update.effective_user
 
-    # User ID ကို total user list ထဲ မှတ်ထားမယ်
     if user:
         all_user_ids.add(user.id)
 
@@ -271,6 +353,10 @@ def main():
 
     app.add_handler(
         CommandHandler("stats", stats)
+    )
+
+    app.add_handler(
+        CommandHandler("broadcast", broadcast)
     )
 
     app.add_handler(
