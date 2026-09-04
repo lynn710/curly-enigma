@@ -25,6 +25,9 @@ GROQ_API_KEY = os.environ.get(
     "YOUR_GROQ_API_KEY_HERE"
 )
 
+# ⚠️ ဒီနေရာမှာ သင့် Telegram User ID ကို ထည့်ပါ (ဂဏန်းသက်သက်)
+ADMIN_ID = 6908674664  # <-- သင့် Admin ID ကို ဒီနေရာမှာ အစားထိုးပါ
+
 
 SYSTEM_PROMPT = (
     "သင်သည် Telegram bot တစ်ခုအတွက် အထောက်အကူပြု AI chatbot တစ်ခုဖြစ်သည်။ "
@@ -53,6 +56,9 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 
 user_histories: dict[int, list[dict]] = {}
 
+# Total user tracking (admin ချည်း သိအောင်)
+all_user_ids: set[int] = set()
+
 MAX_HISTORY_MESSAGES = 10
 
 
@@ -64,6 +70,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     user_histories[chat_id] = []
+
+    # User ID ကို total user list ထဲ မှတ်ထားမယ်
+    if user:
+        all_user_ids.add(user.id)
 
     if user and user.first_name:
         name = user.first_name
@@ -125,6 +135,32 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(reset_message)
 
 
+# STATS COMMAND (Admin ချည်း)
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user = update.effective_user
+
+    if not user or user.id != ADMIN_ID:
+        # Admin မဟုတ်ရင် ဘာမှ ပြန်မဖြေဘဲ ချန်ထားမယ် (secret)
+        return
+
+    total_users = len(all_user_ids)
+
+    stats_message = f"""
+╔══════════════════════════════════════╗
+║        📊 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗜𝗦𝗧𝗜𝗖𝗦        ║
+╚══════════════════════════════════════╝
+
+👥 𝗧𝗼𝘁𝗮𝗹 𝗨𝘀𝗲𝗿𝘀: {total_users}
+
+━━━━━━━━━━━━━━━
+👑 Admin Panel - 𝗟𝗬𝗡𝗡 𝗔𝗜
+"""
+
+    await update.message.reply_text(stats_message)
+
+
 # AI MESSAGE HANDLER
 
 async def handle_message(
@@ -134,6 +170,11 @@ async def handle_message(
 
     chat_id = update.effective_chat.id
     user_text = update.message.text
+    user = update.effective_user
+
+    # User ID ကို total user list ထဲ မှတ်ထားမယ်
+    if user:
+        all_user_ids.add(user.id)
 
     history = user_histories.setdefault(chat_id, [])
 
@@ -226,6 +267,10 @@ def main():
 
     app.add_handler(
         CommandHandler("reset", reset)
+    )
+
+    app.add_handler(
+        CommandHandler("stats", stats)
     )
 
     app.add_handler(
