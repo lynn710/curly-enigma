@@ -3,6 +3,7 @@
 import os
 import base64
 import logging
+import asyncio
 import requests
 
 from telegram import Update
@@ -66,9 +67,10 @@ SYSTEM_PROMPT = (
 
     "User က ဒီ Bot ကို ဘယ်သူဖန်တီးတာလဲ၊ "
     "ဘယ်သူ Creative လုပ်တာလဲဟု မေးပါက "
-    "'ဒီ Bot ကို Creative လုပ်ထားသူက @ur_linn4u ပါ 👑' "
+    "'ဒီ Bot ကို Creative လုပ်ထားသူက @ur_linn4u ပါ' "
     "ဟု ဖြေပါ။ "
 
+    "အဖြေများကို မလိုအပ်ဘဲ ရှည်လျားစွာ မရေးပါနှင့်။"
 )
 
 
@@ -80,11 +82,9 @@ MODEL_NAME = "openai/gpt-oss-20b"
 
 VISION_MODEL_NAME = "qwen/qwen3.6-27b"
 
-# Pollinations image model
+# Pollinations
 IMAGE_MODEL_NAME = "flux"
-
-# Pollinations editing model
-EDIT_MODEL_NAME = "p-image-edit"
+EDIT_MODEL_NAME = "kontext"
 
 
 # =========================================================
@@ -100,10 +100,12 @@ logger = logging.getLogger(__name__)
 
 
 # =========================================================
-# CLIENT
+# GROQ CLIENT
 # =========================================================
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+groq_client = Groq(
+    api_key=GROQ_API_KEY
+)
 
 
 # =========================================================
@@ -121,7 +123,7 @@ MAX_HISTORY_MESSAGES = 10
 
 
 # =========================================================
-# FOOTER
+# CREDIT
 # =========================================================
 
 CREDIT = """
@@ -132,7 +134,38 @@ CREDIT = """
 
 
 # =========================================================
-# START
+# IMAGE EDIT KEYWORDS
+# =========================================================
+
+EDIT_KEYWORDS = [
+    "ပြင်ပေး",
+    "ပြောင်းပေး",
+    "ပြင်ပေးပါ",
+    "ပြောင်းပေးပါ",
+    "edit",
+    "modify",
+    "change this",
+    "make this",
+    "turn this",
+    "transform",
+]
+
+
+def is_edit_request(text: str) -> bool:
+
+    if not text:
+        return False
+
+    text_lower = text.lower()
+
+    return any(
+        keyword in text_lower
+        for keyword in EDIT_KEYWORDS
+    )
+
+
+# =========================================================
+# START / WELCOME
 # =========================================================
 
 async def start(
@@ -145,7 +178,7 @@ async def start(
 
     user_histories[chat_id] = []
 
-    # Start လုပ်တဲ့အချိန် old image ကိုရှင်း
+    # Old image ရှင်း
     last_images.pop(chat_id, None)
 
     if user:
@@ -176,20 +209,20 @@ async def start(
 └──────────────────────────────────────┘
 
 🤖 AI Assistant အဆင်သင့်ဖြစ်နေပါပြီ!
-
-💬 စာပို့ပြီး မေးနိုင်ပါတယ်။
+💬 မေးချင်တာကို စာရိုက်ပြီး ပို့လိုက်ပါ။
 📷 ပုံပို့ပြီး AI ကို မေးနိုင်ပါတယ်။
-🎨 /image <prompt> နဲ့ ပုံအသစ်ဖန်တီးနိုင်ပါတယ်။
-✨ ပုံပို့ပြီး "ပြင်ပေး" လို့ပြောရင် ပုံကို AI နဲ့ ပြင်ပေးပါမယ်။
-
+✨ AI ဖြင့်လည်း ပုံပြင်နိုင်ပါတယ်။
 🧠 LYNN AI က အကောင်းဆုံးဖြေကြားပေးပါမယ်။
 
 ╔══════════════════════════════════════╗
 ║  /reset → 🗑️ Chat History ရှင်းရန် ║
+    /image <prompt> နဲ့ ပုံအသစ်ဖန်တီးရန်
 ╚══════════════════════════════════════╝
 """
 
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text(
+        welcome_message
+    )
 
 
 # =========================================================
@@ -205,7 +238,7 @@ async def reset(
 
     user_histories[chat_id] = []
 
-    # နောက်ဆုံးမှတ်ထားတဲ့ပုံပါ ရှင်း
+    # နောက်ဆုံးပုံလည်းရှင်း
     last_images.pop(chat_id, None)
 
     reset_message = """
@@ -219,109 +252,145 @@ async def reset(
 🤖 မေးချင်တာကို ဆက်မေးနိုင်ပါတယ်။
 """ + CREDIT
 
-    await update.message.reply_text(reset_message)
+    await update.message.reply_text(
+        reset_message
+    )
 
 
 # =========================================================
-# IMAGE GENERATION
+# POLLINATIONS IMAGE GENERATION
 # =========================================================
 
-async def generate_image(prompt: str) -> bytes:
+def generate_image(prompt: str) -> bytes:
 
-    url = "https://gen.pollinations.ai/v1/images/generations"
+    from urllib.parse import quote
+
+    encoded_prompt = quote(
+        prompt,
+        safe=""
+    )
+
+    url = (
+        "https://gen.pollinations.ai/image/"
+        + encoded_prompt
+    )
 
     headers = {
-        "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
-        "Content-Type": "application/json",
+        "Authorization": (
+            f"Bearer {POLLINATIONS_API_KEY}"
+        )
     }
 
-    payload = {
+    params = {
         "model": IMAGE_MODEL_NAME,
-        "prompt": prompt,
-        "size": "1024x1024",
-        "n": 1,
-        "response_format": "b64_json",
+        "width": 1024,
+        "height": 1024,
+        "safe": "true",
     }
 
-    response = requests.post(
+    response = requests.get(
         url,
         headers=headers,
-        json=payload,
+        params=params,
         timeout=180,
     )
 
-    response.raise_for_status()
+    if response.status_code != 200:
 
-    data = response.json()
+        error_text = response.text[:800]
 
-    image_data = data["data"][0]
-
-    if image_data.get("b64_json"):
-        return base64.b64decode(image_data["b64_json"])
-
-    # URL response ဖြစ်ရင်လည်း support
-    if image_data.get("url"):
-        image_response = requests.get(
-            image_data["url"],
-            timeout=180,
+        raise RuntimeError(
+            f"Pollinations HTTP "
+            f"{response.status_code}\n"
+            f"{error_text}"
         )
 
-        image_response.raise_for_status()
+    if not response.content:
 
-        return image_response.content
+        raise RuntimeError(
+            "Pollinations က image data မပြန်ပေးပါ။"
+        )
 
-    raise RuntimeError("Pollinations က image data မပြန်ပေးပါ။")
+    return response.content
 
 
 # =========================================================
-# IMAGE EDITING
+# POLLINATIONS IMAGE EDIT
 # =========================================================
 
-async def edit_image(
+def edit_image(
     image_bytes: bytes,
     prompt: str
 ) -> bytes:
 
-    url = "https://gen.pollinations.ai/v1/images/edits"
-
-    headers = {
-        "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    # Telegram ကရတဲ့ image ကို base64 data URI ပြောင်း
-    base64_image = base64.b64encode(image_bytes).decode("utf-8")
-
-    image_data_uri = (
-        f"data:image/jpeg;base64,{base64_image}"
+    url = (
+        "https://gen.pollinations.ai"
+        "/v1/images/edits"
     )
 
-    payload = {
-        "model": EDIT_MODEL_NAME,
+    headers = {
+        "Authorization": (
+            f"Bearer {POLLINATIONS_API_KEY}"
+        )
+    }
+
+    files = {
+        "image": (
+            "input.jpg",
+            image_bytes,
+            "image/jpeg"
+        )
+    }
+
+    data = {
         "prompt": prompt,
-        "image": image_data_uri,
-        "n": 1,
-        "response_format": "b64_json",
+        "model": EDIT_MODEL_NAME,
+        "size": "1024x1024",
     }
 
     response = requests.post(
         url,
         headers=headers,
-        json=payload,
+        files=files,
+        data=data,
         timeout=180,
     )
 
-    response.raise_for_status()
+    if response.status_code != 200:
 
-    data = response.json()
+        error_text = response.text[:1000]
 
-    image_data = data["data"][0]
+        raise RuntimeError(
+            f"Pollinations Edit HTTP "
+            f"{response.status_code}\n"
+            f"{error_text}"
+        )
 
+    result = response.json()
+
+    if "data" not in result:
+
+        raise RuntimeError(
+            "Pollinations edit response မှာ "
+            "data မတွေ့ပါ။"
+        )
+
+    if not result["data"]:
+
+        raise RuntimeError(
+            "Pollinations က edited image မပြန်ပေးပါ။"
+        )
+
+    image_data = result["data"][0]
+
+    # Base64 response
     if image_data.get("b64_json"):
+
         return base64.b64decode(
             image_data["b64_json"]
         )
 
+    # URL response
     if image_data.get("url"):
 
         image_response = requests.get(
@@ -329,12 +398,17 @@ async def edit_image(
             timeout=180,
         )
 
-        image_response.raise_for_status()
+        if image_response.status_code != 200:
+
+            raise RuntimeError(
+                "Edited image URL ကို "
+                "download မလုပ်နိုင်ပါ။"
+            )
 
         return image_response.content
 
     raise RuntimeError(
-        "Pollinations က edited image data မပြန်ပေးပါ။"
+        "Edited image data မတွေ့ပါ။"
     )
 
 
@@ -353,14 +427,17 @@ async def image_command(
     if user:
         all_user_ids.add(user.id)
 
-    prompt = " ".join(context.args).strip()
+    prompt = " ".join(
+        context.args
+    ).strip()
 
     if not prompt:
 
         await update.message.reply_text(
             "🎨 ပုံဖန်တီးရန် prompt ထည့်ပါ။\n\n"
             "ဥပမာ:\n"
-            "/image A cute robot in a futuristic city"
+            "/image A cute white robot "
+            "in a futuristic city"
             + CREDIT
         )
 
@@ -371,22 +448,21 @@ async def image_command(
         action="upload_photo"
     )
 
-    status_message = await update.message.reply_text(
-        "🎨 ပုံဖန်တီးနေပါသည်...\n"
-        "⏳ ခဏစောင့်ပေးပါ။"
+    status_message = (
+        await update.message.reply_text(
+            "🎨 ပုံဖန်တီးနေပါသည်...\n"
+            "⏳ ခဏစောင့်ပေးပါ။"
+        )
     )
 
     try:
 
-        image_bytes = await __import__(
-            "asyncio"
-        ).to_thread(
+        image_bytes = await asyncio.to_thread(
             generate_image,
             prompt
         )
 
-        await status_message.delete()
-
+        # ပုံပို့ပြီးမှ status ဖျက်
         await update.message.reply_photo(
             photo=image_bytes,
             caption=(
@@ -396,17 +472,36 @@ async def image_command(
             )
         )
 
+        try:
+            await status_message.delete()
+        except Exception:
+            pass
+
     except Exception as e:
 
-        logger.error(
-            f"Pollinations image error: {e}"
+        logger.exception(
+            "Pollinations image generation error"
         )
 
-        await status_message.edit_text(
-            "❌ ပုံဖန်တီးရာမှာ အမှားတစ်ခု ဖြစ်သွားပါသည်။\n\n"
-            "ခဏနေပြီး ပြန်ကြိုးစားကြည့်ပါ။"
-            + CREDIT
-        )
+        error_text = str(e)
+
+        try:
+
+            await status_message.edit_text(
+                "❌ ပုံဖန်တီးလို့မရပါ။\n\n"
+                "🔧 Error:\n"
+                f"{error_text[:1000]}"
+                + CREDIT
+            )
+
+        except Exception:
+
+            await update.message.reply_text(
+                "❌ ပုံဖန်တီးရာမှာ "
+                "အမှားတစ်ခု ဖြစ်သွားပါတယ်။\n\n"
+                f"🔧 {error_text[:700]}"
+                + CREDIT
+            )
 
 
 # =========================================================
@@ -423,7 +518,9 @@ async def stats(
     if not user or user.id != ADMIN_ID:
         return
 
-    total_users = len(all_user_ids)
+    total_users = len(
+        all_user_ids
+    )
 
     stats_message = f"""
 ╔══════════════════════════════════════╗
@@ -433,7 +530,9 @@ async def stats(
 👥 𝗧𝗼𝘁𝗮𝗹 𝗨𝘀𝗲𝗿𝘀: {total_users}
 """ + CREDIT
 
-    await update.message.reply_text(stats_message)
+    await update.message.reply_text(
+        stats_message
+    )
 
 
 # =========================================================
@@ -453,15 +552,20 @@ async def broadcast(
     message = update.message
 
     if message.caption:
+
         raw_text = message.caption
 
     elif message.text:
+
         raw_text = message.text
 
     else:
+
         raw_text = ""
 
-    parts = raw_text.split(maxsplit=1)
+    parts = raw_text.split(
+        maxsplit=1
+    )
 
     broadcast_text = (
         parts[1]
@@ -469,13 +573,18 @@ async def broadcast(
         else ""
     )
 
-    if not broadcast_text and not message.photo:
+    if (
+        not broadcast_text
+        and not message.photo
+    ):
 
         await update.message.reply_text(
-            "⚠️ Broadcast ပို့ရန် စာသား "
-            "(သို့) ပုံ+caption လိုအပ်ပါသည်။\n\n"
-            "Text: /broadcast <စာသား>\n"
-            "Photo: ပုံပို့ပြီး caption ထဲ "
+            "⚠️ Broadcast ပို့ရန် "
+            "စာသား (သို့) ပုံ+caption လိုအပ်ပါသည်။\n\n"
+            "Text:\n"
+            "/broadcast <စာသား>\n\n"
+            "Photo:\n"
+            "ပုံပို့ပြီး caption ထဲ "
             "/broadcast <caption>"
         )
 
@@ -485,7 +594,7 @@ async def broadcast(
     fail_count = 0
 
     await update.message.reply_text(
-        f"📤 Broadcast စတင်ပေးပို့နေပါပြီ...\n"
+        "📤 Broadcast စတင်ပေးပို့နေပါပြီ...\n"
         f"👥 Total Users: {len(all_user_ids)}"
     )
 
@@ -566,55 +675,42 @@ async def handle_message(
         all_user_ids.add(user.id)
 
     # -----------------------------------------------------
-    # Previous image ကို edit လုပ်ချင်တာလား စစ်မယ်
+    # Previous image edit
     # -----------------------------------------------------
 
-    edit_keywords = [
-        "ပြင်ပေး",
-        "ပြောင်းပေး",
-        "ပြင်ပေးပါ",
-        "ပြောင်းပေးပါ",
-        "edit",
-        "modify",
-        "change this",
-        "make this",
-        "turn this",
-        "transform",
-    ]
-
-    is_edit_request = any(
-        keyword in user_text.lower()
-        for keyword in edit_keywords
-    )
-
-    if is_edit_request and chat_id in last_images:
+    if (
+        is_edit_request(user_text)
+        and chat_id in last_images
+    ):
 
         await context.bot.send_chat_action(
             chat_id=chat_id,
             action="upload_photo"
         )
 
-        status_message = await update.message.reply_text(
-            "✨ ပုံကို AI နဲ့ ပြင်နေပါသည်...\n"
-            "⏳ ခဏစောင့်ပေးပါ။"
+        status_message = (
+            await update.message.reply_text(
+                "✨ ပုံကို AI ဖြင့် ပြင်နေပါသည်...\n"
+                "⏳ ခဏစောင့်ပေးပါ။"
+            )
         )
 
         try:
 
-            original_image = last_images[chat_id]
+            original_image = (
+                last_images[chat_id]
+            )
 
-            edited_image = await __import__(
-                "asyncio"
-            ).to_thread(
+            edited_image = await asyncio.to_thread(
                 edit_image,
                 original_image,
                 user_text
             )
 
-            # edited image ကို latest image အဖြစ်သိမ်း
-            last_images[chat_id] = edited_image
-
-            await status_message.delete()
+            # Edited image ကို latest image အဖြစ်သိမ်း
+            last_images[chat_id] = (
+                edited_image
+            )
 
             await update.message.reply_photo(
                 photo=edited_image,
@@ -625,22 +721,39 @@ async def handle_message(
                 )
             )
 
+            try:
+                await status_message.delete()
+            except Exception:
+                pass
+
         except Exception as e:
 
-            logger.error(
-                f"Pollinations edit error: {e}"
+            logger.exception(
+                "Pollinations edit error"
             )
 
-            await status_message.edit_text(
-                "❌ ပုံပြင်ရာမှာ အမှားတစ်ခု ဖြစ်သွားပါသည်။\n\n"
-                "ခဏနေပြီး ပြန်ကြိုးစားကြည့်ပါ။"
-                + CREDIT
-            )
+            try:
+
+                await status_message.edit_text(
+                    "❌ ပုံပြင်လို့မရပါ။\n\n"
+                    "🔧 Error:\n"
+                    f"{str(e)[:1000]}"
+                    + CREDIT
+                )
+
+            except Exception:
+
+                await update.message.reply_text(
+                    "❌ ပုံပြင်ရာမှာ "
+                    "အမှားတစ်ခု ဖြစ်သွားပါသည်။\n\n"
+                    f"🔧 {str(e)[:700]}"
+                    + CREDIT
+                )
 
         return
 
     # -----------------------------------------------------
-    # Normal AI Chat
+    # NORMAL GROQ CHAT
     # -----------------------------------------------------
 
     history = user_histories.setdefault(
@@ -653,7 +766,9 @@ async def handle_message(
         "content": user_text
     })
 
-    history = history[-MAX_HISTORY_MESSAGES:]
+    history = history[
+        -MAX_HISTORY_MESSAGES:
+    ]
 
     await context.bot.send_chat_action(
         chat_id=chat_id,
@@ -669,26 +784,34 @@ async def handle_message(
             }
         ] + history
 
-        response = groq_client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            max_tokens=500,
+        response = (
+            groq_client
+            .chat
+            .completions
+            .create(
+                model=MODEL_NAME,
+                messages=messages,
+                max_tokens=500,
+            )
         )
 
         reply_text = (
-            response.choices[0]
-            .message.content
+            response
+            .choices[0]
+            .message
+            .content
         )
 
     except Exception as e:
 
-        logger.error(
-            f"Groq API error: {e}"
+        logger.exception(
+            "Groq API error"
         )
 
         await update.message.reply_text(
             "❌ တောင်းပန်ပါတယ်။\n\n"
-            "AI Server မှာ အမှားတစ်ခု ဖြစ်သွားပါသည်။\n"
+            "AI Server မှာ အမှားတစ်ခု "
+            "ဖြစ်သွားပါသည်။\n"
             "ခဏနေပြီး ပြန်မေးကြည့်ပါ။"
             + CREDIT
         )
@@ -732,24 +855,28 @@ async def handle_photo(
     )
 
     # -----------------------------------------------------
-    # Download image
+    # DOWNLOAD TELEGRAM IMAGE
     # -----------------------------------------------------
 
     try:
 
-        photo_file = await message.photo[-1].get_file()
+        photo_file = (
+            await message.photo[-1].get_file()
+        )
 
         photo_bytes = bytes(
             await photo_file.download_as_bytearray()
         )
 
-        # နောက်ဆုံးပုံအဖြစ် သိမ်းထားမယ်
-        last_images[chat_id] = photo_bytes
+        # နောက်ဆုံးပုံကိုသိမ်း
+        last_images[chat_id] = (
+            photo_bytes
+        )
 
     except Exception as e:
 
-        logger.error(
-            f"Telegram image download error: {e}"
+        logger.exception(
+            "Telegram image download error"
         )
 
         await message.reply_text(
@@ -761,60 +888,37 @@ async def handle_photo(
         return
 
     # -----------------------------------------------------
-    # Caption က image edit request လား?
+    # PHOTO + EDIT REQUEST
     # -----------------------------------------------------
 
-    edit_keywords = [
-        "ပြင်ပေး",
-        "ပြောင်းပေး",
-        "ပြင်ပေးပါ",
-        "ပြောင်းပေးပါ",
-        "edit",
-        "modify",
-        "change this",
-        "make this",
-        "turn this",
-        "transform",
-    ]
-
-    is_edit_request = (
-        any(
-            keyword in caption_text.lower()
-            for keyword in edit_keywords
-        )
-        if caption_text
-        else False
-    )
-
-    # -----------------------------------------------------
-    # IMAGE EDIT
-    # -----------------------------------------------------
-
-    if is_edit_request:
+    if is_edit_request(
+        caption_text
+    ):
 
         await context.bot.send_chat_action(
             chat_id=chat_id,
             action="upload_photo"
         )
 
-        status_message = await message.reply_text(
-            "✨ ပုံကို AI နဲ့ ပြင်နေပါသည်...\n"
-            "⏳ ခဏစောင့်ပေးပါ။"
+        status_message = (
+            await message.reply_text(
+                "✨ ပုံကို AI ဖြင့် ပြင်နေပါသည်...\n"
+                "⏳ ခဏစောင့်ပေးပါ။"
+            )
         )
 
         try:
 
-            edited_image = await __import__(
-                "asyncio"
-            ).to_thread(
+            edited_image = await asyncio.to_thread(
                 edit_image,
                 photo_bytes,
                 caption_text
             )
 
-            last_images[chat_id] = edited_image
-
-            await status_message.delete()
+            # Edited image ကို latest image အဖြစ်သိမ်း
+            last_images[chat_id] = (
+                edited_image
+            )
 
             await message.reply_photo(
                 photo=edited_image,
@@ -825,28 +929,45 @@ async def handle_photo(
                 )
             )
 
+            try:
+                await status_message.delete()
+            except Exception:
+                pass
+
         except Exception as e:
 
-            logger.error(
-                f"Pollinations edit error: {e}"
+            logger.exception(
+                "Pollinations photo edit error"
             )
 
-            await status_message.edit_text(
-                "❌ ပုံပြင်ရာမှာ အမှားတစ်ခု ဖြစ်သွားပါသည်။\n\n"
-                "ခဏနေပြီး ပြန်ကြိုးစားကြည့်ပါ။"
-                + CREDIT
-            )
+            try:
+
+                await status_message.edit_text(
+                    "❌ ပုံပြင်လို့မရပါ။\n\n"
+                    "🔧 Error:\n"
+                    f"{str(e)[:1000]}"
+                    + CREDIT
+                )
+
+            except Exception:
+
+                await message.reply_text(
+                    "❌ ပုံပြင်ရာမှာ "
+                    "အမှားတစ်ခု ဖြစ်သွားပါသည်။\n\n"
+                    f"🔧 {str(e)[:700]}"
+                    + CREDIT
+                )
 
         return
 
     # -----------------------------------------------------
-    # IMAGE VISION ANALYSIS
+    # PHOTO + VISION QUESTION
     # -----------------------------------------------------
 
     if not caption_text:
 
         caption_text = (
-            "ဒီပုံထဲမှာ ဘာတွေပါလဲ "
+            "ဒီပုံထဲမှာ ဘာတွေပါလဲ။ "
             "ရိုးရှင်းပြီး တိတိကျကျ ရှင်းပြပါ။"
         )
 
@@ -858,8 +979,9 @@ async def handle_photo(
     try:
 
         base64_image = (
-            base64.b64encode(photo_bytes)
-            .decode("utf-8")
+            base64.b64encode(
+                photo_bytes
+            ).decode("utf-8")
         )
 
         vision_messages = [
@@ -883,26 +1005,34 @@ async def handle_photo(
             }
         ]
 
-        response = groq_client.chat.completions.create(
-            model=VISION_MODEL_NAME,
-            messages=vision_messages,
-            max_tokens=500,
+        response = (
+            groq_client
+            .chat
+            .completions
+            .create(
+                model=VISION_MODEL_NAME,
+                messages=vision_messages,
+                max_tokens=500,
+            )
         )
 
         reply_text = (
-            response.choices[0]
-            .message.content
+            response
+            .choices[0]
+            .message
+            .content
         )
 
     except Exception as e:
 
-        logger.error(
-            f"Groq Vision API error: {e}"
+        logger.exception(
+            "Groq Vision API error"
         )
 
         await message.reply_text(
             "❌ တောင်းပန်ပါတယ်။\n\n"
-            "ပုံကို ကြည့်ရာတွင် အမှားတစ်ခု ဖြစ်သွားပါသည်။\n"
+            "ပုံကို ကြည့်ရာတွင် "
+            "အမှားတစ်ခု ဖြစ်သွားပါသည်။\n"
             "ခဏနေပြီး ပြန်ကြိုးစားကြည့်ပါ။"
             + CREDIT
         )
@@ -910,7 +1040,7 @@ async def handle_photo(
         return
 
     # -----------------------------------------------------
-    # History
+    # HISTORY
     # -----------------------------------------------------
 
     history = user_histories.setdefault(
@@ -921,8 +1051,8 @@ async def handle_photo(
     history.append({
         "role": "user",
         "content": (
-            f"[User sent an image] "
-            f"{caption_text}"
+            "[User sent an image] "
+            + caption_text
         )
     })
 
@@ -941,10 +1071,14 @@ async def handle_photo(
 
 
 # =========================================================
-# MAIN
+# MAIN APPLICATION
 # =========================================================
 
 def main():
+
+    # -----------------------------------------------------
+    # CHECK TELEGRAM TOKEN
+    # -----------------------------------------------------
 
     if (
         TELEGRAM_BOT_TOKEN
@@ -956,6 +1090,10 @@ def main():
             "Railway Variables ထဲမှာ ထည့်ပါ"
         )
 
+    # -----------------------------------------------------
+    # CHECK GROQ KEY
+    # -----------------------------------------------------
+
     if (
         GROQ_API_KEY
         == "YOUR_GROQ_API_KEY_HERE"
@@ -966,6 +1104,10 @@ def main():
             "Railway Variables ထဲမှာ ထည့်ပါ"
         )
 
+    # -----------------------------------------------------
+    # CHECK POLLINATIONS KEY
+    # -----------------------------------------------------
+
     if (
         POLLINATIONS_API_KEY
         == "YOUR_POLLINATIONS_API_KEY_HERE"
@@ -975,6 +1117,10 @@ def main():
             "POLLINATIONS_API_KEY ကို "
             "Railway Variables ထဲမှာ ထည့်ပါ"
         )
+
+    # -----------------------------------------------------
+    # CREATE TELEGRAM APP
+    # -----------------------------------------------------
 
     app = (
         ApplicationBuilder()
@@ -987,23 +1133,38 @@ def main():
     # -----------------------------------------------------
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("reset", reset)
+        CommandHandler(
+            "reset",
+            reset
+        )
     )
 
     app.add_handler(
-        CommandHandler("stats", stats)
+        CommandHandler(
+            "stats",
+            stats
+        )
     )
 
     app.add_handler(
-        CommandHandler("broadcast", broadcast)
+        CommandHandler(
+            "broadcast",
+            broadcast
+        )
     )
 
     app.add_handler(
-        CommandHandler("image", image_command)
+        CommandHandler(
+            "image",
+            image_command
+        )
     )
 
     # -----------------------------------------------------
@@ -1021,7 +1182,7 @@ def main():
     )
 
     # -----------------------------------------------------
-    # PHOTO
+    # NORMAL USER PHOTO
     # -----------------------------------------------------
 
     app.add_handler(
@@ -1032,7 +1193,7 @@ def main():
     )
 
     # -----------------------------------------------------
-    # TEXT
+    # NORMAL TEXT
     # -----------------------------------------------------
 
     app.add_handler(
