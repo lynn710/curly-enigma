@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import base64
 import logging
 
 from telegram import Update
@@ -11,7 +12,6 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from telegram.constants import ParseMode
 from telegram.error import Forbidden, BadRequest
 
 from groq import Groq
@@ -33,7 +33,7 @@ ADMIN_ID = 6908674664
 
 SYSTEM_PROMPT = (
     "သင်သည် Telegram bot တစ်ခုအတွက် အထောက်အကူပြု AI chatbot တစ်ခုဖြစ်သည်။ "
-    "မြန်မာဘာသာနှင့်Englishဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
+    "မြန်မာဘာသာဖြင့် ရိုးရှင်းပြီး ရင်းနှီးစွာ၊ တိုတိုနှင့် ရှင်းလင်းစွာ ဖြေကြားပါ။"
     "သင့်နာမည်မှာ LYNN AI ဖြစ်သည်။ "
     "User က 'မင်းဘယ်သူလဲ', 'မင်းနာမည်ကဘာလဲ', 'ဘယ် AI လဲ' ဟု မေးပါက "
     "'ကျွန်တော်က LYNN AI ပါ' ဟု ဖြေပါ။ "
@@ -45,6 +45,7 @@ SYSTEM_PROMPT = (
 )
 
 MODEL_NAME = "openai/gpt-oss-20b"
+VISION_MODEL_NAME = "qwen/qwen3.6-27b"
 
 
 logging.basicConfig(
@@ -58,7 +59,6 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 
 user_histories: dict[int, list[dict]] = {}
 
-# Total user tracking (admin ချည်းသိအောင်)
 all_user_ids: set[int] = set()
 
 MAX_HISTORY_MESSAGES = 10
@@ -102,6 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🤖 AI Assistant အဆင်သင့်ဖြစ်နေပါပြီ!
 💬 မေးချင်တာကို စာရိုက်ပြီး ပို့လိုက်ပါ။
+📷 ပုံလည်း ပို့လို့ရပါတယ် - AI က ပုံကို ကြည့်ပြီး ဖြေပေးပါမယ်။
 🧠 AI က အကောင်းဆုံးဖြေကြားပေးပါမယ်။
 
 ╔══════════════════════════════════════╗
@@ -162,9 +163,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # BROADCAST COMMAND (Admin ချည်း)
-# Usage:
-#   Text ပို့ချင်ရင်: /broadcast <စာသား>
-#   ပုံ ပို့ချင်ရင်: ပုံကို bot ဆီပို့ပြီး caption box ထဲမှာ /broadcast <caption> ရေးပါ
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -175,7 +173,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = update.message
 
-    # Caption/Text ထဲက "/broadcast " အပိုင်းကို ဖြုတ်ပါ
     if message.caption:
         raw_text = message.caption
     elif message.text:
@@ -205,7 +202,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for uid in list(all_user_ids):
         try:
             if message.photo:
-                # အကြီးဆုံး resolution ပုံကို ယူပါ
                 photo_file_id = message.photo[-1].file_id
                 await context.bot.send_photo(
                     chat_id=uid,
@@ -220,7 +216,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             success_count += 1
 
         except Forbidden:
-            # User က bot ကို block ထားခြင်း
             fail_count += 1
         except BadRequest:
             fail_count += 1
@@ -244,7 +239,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(report_message)
 
 
-# AI MESSAGE HANDLER
+# AI TEXT MESSAGE HANDLER
 
 async def handle_message(
     update: Update,
@@ -325,6 +320,102 @@ AI Server မှာ အမှားတစ်ခု ဖြစ်သွားပ�
     await update.message.reply_text(final_reply)
 
 
+# AI IMAGE (VISION) HANDLER
+# User ပုံပို့တဲ့အခါ (broadcast command မဟုတ်တဲ့ ပုံများ) ဒီ function က AI ကို ပုံကို ကြည့်ခိုင်းမယ်
+
+async def handle_photo(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    message = update.message
+
+    if user:
+        all_user_ids.add(user.id)
+
+    caption_text = message.caption if message.caption else "ဒီပုံထဲမှာ ဘာတွေပါလဲ ရှင်းပြပါ။"
+
+    await context.bot.send_chat_action(
+        chat_id=chat_id,
+        action="typing"
+    )
+
+    try:
+        # ပုံအကြီးဆုံး resolution ကို ယူပြီး download လုပ်မယ်
+        photo_file = await message.photo[-1].get_file()
+        photo_bytes = await photo_file.download_as_bytearray()
+
+        base64_image = base64.b64encode(photo_bytes).decode("utf-8")
+
+        vision_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": caption_text
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ]
+
+        response = groq_client.chat.completions.create(
+            model=VISION_MODEL_NAME,
+            messages=vision_messages,
+            max_tokens=1000,
+        )
+
+        reply_text = response.choices[0].message.content
+
+    except Exception as e:
+
+        logger.error(f"Groq Vision API error: {e}")
+
+        error_message = """
+❌ တောင်းပန်ပါတယ်။
+
+ပုံကို ကြည့်ရာတွင် အမှားတစ်ခု ဖြစ်သွားပါတယ်။
+ခဏနေပြီး ပြန်ကြိုးစားကြည့်ပါ။
+
+━━━━━━━━━━━━━━━
+👑 Creative by 𝗟𝗬𝗡𝗡 𝗔𝗜
+"""
+
+        await update.message.reply_text(error_message)
+
+        return
+
+    # Conversation history ထဲမှာ ပုံအကြောင်း မှတ်ထားမယ် (context ဆက်ရအောင်)
+    history = user_histories.setdefault(chat_id, [])
+    history.append({
+        "role": "user",
+        "content": f"[User sent an image] {caption_text}"
+    })
+    history.append({
+        "role": "assistant",
+        "content": reply_text
+    })
+    user_histories[chat_id] = history[-MAX_HISTORY_MESSAGES:]
+
+    credit = """
+    
+━━━━━━━━━━━━━━━
+👑 Creative by 𝗟𝗬𝗡𝗡 𝗔𝗜
+"""
+
+    final_reply = reply_text + credit
+
+    await update.message.reply_text(final_reply)
+
+
 # MAIN APPLICATION
 
 def main():
@@ -359,10 +450,19 @@ def main():
         CommandHandler("broadcast", broadcast)
     )
 
+    # Admin ပုံ+caption "/broadcast" ပို့ရင် broadcast function ကို ခေါ်မယ်
     app.add_handler(
         MessageHandler(
             filters.PHOTO & filters.CaptionRegex(r'^/broadcast'),
             broadcast
+        )
+    )
+
+    # User ပုံ (broadcast မဟုတ်တဲ့) ပို့ရင် AI Vision function ကို ခေါ်မယ်
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO,
+            handle_photo
         )
     )
 
