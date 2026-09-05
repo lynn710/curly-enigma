@@ -231,13 +231,13 @@ def format_weather_message(data: dict) -> str:
 
 {condition}
 
-🌡️ 𝗧𝗲𝗺𝗽𝗲𝗿𝗮𝘁𝘂𝗿𝗲: {temp}°C
-🤔 𝗙𝗲𝗲𝗹𝘀 𝗹𝗶𝗸𝗲: {feels_like}°C
-📈 𝗧𝗼𝗱𝗮𝘆 𝗠𝗮𝘅: {max_temp}°C
-📉 𝗧𝗼𝗱𝗮𝘆 𝗠𝗶𝗻: {min_temp}°C
-💧 𝗛𝘂𝗺𝗶𝗱𝗶𝘁𝘆: {humidity}%
-🌧️ 𝗥𝗮𝗶𝗻 𝗖𝗵𝗮𝗻𝗰𝗲: {rain_chance}%
-💨 𝗪𝗶𝗻𝗱: {wind} km/h
+🌡️ အပူချိန်: {temp}°C
+🔥 ခံစားနေရသော အပူချိန်: {feels_like}°C
+📈 ယနေ့အမြင့်ဆုံး အပူချိန်: {max_temp}°C
+📉 ယနေ့အနိုမ့်ဆုံး အပူချိန်: {min_temp}°C
+💧 စိုထိုင်းဆ: {humidity}%
+🌧️ မိုးရွာနိုင်‌ခြေ: {rain_chance}%
+💨 လေတိုက်နှုန်း: {wind} km/h
 """ + CREDIT
 
     return message
@@ -251,7 +251,7 @@ def fetch_all_regions_summary() -> str:
 
     lines = [
         "╔══════════════════════════════════════╗",
-        "║   🇲🇲 𝗠𝗬𝗔𝗡𝗠𝗔𝗥 𝗪𝗘𝗔𝗧𝗛𝗘𝗥 𝗦𝗨𝗠𝗠𝗔𝗥𝗬   ║",
+        "║  𝗠𝗬𝗔𝗡𝗠𝗔𝗥 𝗪𝗘𝗔𝗧𝗛𝗘𝗥 𝗦𝗨𝗠𝗠𝗔𝗥𝗬   ║",
         "╚══════════════════════════════════════╝",
         "",
     ]
