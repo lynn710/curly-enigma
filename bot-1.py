@@ -969,9 +969,7 @@ def main():
         raise SystemExit("GROQ_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
 
     if not FAL_KEY or FAL_KEY == "YOUR_FAL_KEY_HERE":
-    raise SystemExit(
-        "FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ"
-    )
+    raise SystemExit("FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
     
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
