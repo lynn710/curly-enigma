@@ -6,7 +6,7 @@ import base64
 import logging
 import asyncio
 import datetime
-import requests
+import fal_client
 
 from zoneinfo import ZoneInfo
 
@@ -35,8 +35,8 @@ GROQ_API_KEY = os.environ.get(
     "GROQ_API_KEY", "YOUR_GROQ_API_KEY_HERE"
 )
 
-POLLINATIONS_API_KEY = os.environ.get(
-    "POLLINATIONS_API_KEY", "YOUR_POLLINATIONS_API_KEY_HERE"
+FAL_KEY = os.environ.get(
+    "FAL_KEY", "YOUR_FAL_KEY_HERE"
 )
 
 
@@ -309,9 +309,8 @@ SYSTEM_PROMPT = (
 MODEL_NAME = "openai/gpt-oss-20b"
 VISION_MODEL_NAME = "qwen/qwen3.6-27b"
 
-IMAGE_MODEL_NAME = "flux"
-EDIT_MODEL_NAME = "kontext"
-
+IMAGE_MODEL_NAME = "fal-ai/nano-banana-2"
+EDIT_MODEL_NAME = "fal-ai/nano-banana-2/edit"
 
 # =========================================================
 # LOGGING
@@ -486,68 +485,106 @@ async def daily_weather_broadcast(context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# POLLINATIONS IMAGE GENERATION
+# FAL.AI IMAGE GENERATION
 # =========================================================
 
-def generate_image(prompt: str) -> bytes:
+def download_fal_image(result: dict) -> bytes:
 
-    from urllib.parse import quote
+    images = result.get("images")
 
-    encoded_prompt = quote(prompt, safe="")
-    url = "https://gen.pollinations.ai/image/" + encoded_prompt
+    if not images:
+        raise RuntimeError(
+            "fal.ai က image result မပြန်ပေးပါ။"
+        )
 
-    headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
-    params = {
-        "model": IMAGE_MODEL_NAME,
-        "width": 1024,
-        "height": 1024,
-        "safe": "true",
-    }
+    image_url = images[0].get("url")
 
-    response = requests.get(url, headers=headers, params=params, timeout=180)
+    if not image_url:
+        raise RuntimeError(
+            "fal.ai result ထဲမှာ image URL မတွေ့ပါ။"
+        )
+
+    response = requests.get(
+        image_url,
+        timeout=180
+    )
 
     if response.status_code != 200:
-        raise RuntimeError(f"Pollinations HTTP {response.status_code}\n{response.text[:800]}")
+        raise RuntimeError(
+            f"fal.ai image download HTTP "
+            f"{response.status_code}"
+        )
 
     if not response.content:
-        raise RuntimeError("Pollinations က image data မပြန်ပေးပါ။")
+        raise RuntimeError(
+            "fal.ai image data အလွတ်ဖြစ်နေပါသည်။"
+        )
 
     return response.content
 
 
+def generate_image(prompt: str) -> bytes:
+
+    if not FAL_KEY or FAL_KEY == "YOUR_FAL_KEY_HERE":
+        raise RuntimeError(
+            "FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ။"
+        )
+
+    result = fal_client.subscribe(
+        IMAGE_MODEL_NAME,
+        arguments={
+            "prompt": prompt,
+            "num_images": 1,
+            "aspect_ratio": "1:1",
+            "output_format": "png",
+            "resolution": "1K",
+            "safety_tolerance": "4",
+            "limit_generations": True,
+        },
+        with_logs=False,
+        client_timeout=240,
+    )
+
+    return download_fal_image(result)
+
+
 # =========================================================
-# POLLINATIONS IMAGE EDIT
+# FAL.AI IMAGE EDIT
 # =========================================================
 
-def edit_image(image_bytes: bytes, prompt: str) -> bytes:
+def edit_image(
+    image_bytes: bytes,
+    prompt: str
+) -> bytes:
 
-    url = "https://gen.pollinations.ai/v1/images/edits"
-    headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
-    files = {"image": ("input.jpg", image_bytes, "image/jpeg")}
-    data = {"prompt": prompt, "model": EDIT_MODEL_NAME, "size": "1024x1024"}
+    if not FAL_KEY or FAL_KEY == "YOUR_FAL_KEY_HERE":
+        raise RuntimeError(
+            "FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ။"
+        )
 
-    response = requests.post(url, headers=headers, files=files, data=data, timeout=180)
+    # Telegram ကရလာတဲ့ image bytes ကို
+    # fal.ai အတွက် Data URL ပြောင်းမယ်
+    image_data_url = fal_client.encode(
+        image_bytes,
+        "image/jpeg"
+    )
 
-    if response.status_code != 200:
-        raise RuntimeError(f"Pollinations Edit HTTP {response.status_code}\n{response.text[:1000]}")
+    result = fal_client.subscribe(
+        EDIT_MODEL_NAME,
+        arguments={
+            "prompt": prompt,
+            "num_images": 1,
+            "aspect_ratio": "auto",
+            "output_format": "png",
+            "safety_tolerance": "4",
+            "image_urls": [image_data_url],
+            "limit_generations": True,
+        },
+        with_logs=False,
+        client_timeout=240,
+    )
 
-    result = response.json()
-
-    if "data" not in result or not result["data"]:
-        raise RuntimeError("Pollinations က edited image မပြန်ပေးပါ။")
-
-    image_data = result["data"][0]
-
-    if image_data.get("b64_json"):
-        return base64.b64decode(image_data["b64_json"])
-
-    if image_data.get("url"):
-        image_response = requests.get(image_data["url"], timeout=180)
-        if image_response.status_code != 200:
-            raise RuntimeError("Edited image URL ကို download မလုပ်နိုင်ပါ။")
-        return image_response.content
-
-    raise RuntimeError("Edited image data မတွေ့ပါ။")
+    return download_fal_image(result)
 
 
 # =========================================================
@@ -931,9 +968,11 @@ def main():
     if GROQ_API_KEY == "YOUR_GROQ_API_KEY_HERE":
         raise SystemExit("GROQ_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
 
-    if POLLINATIONS_API_KEY == "YOUR_POLLINATIONS_API_KEY_HERE":
-        raise SystemExit("POLLINATIONS_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
-
+    if not FAL_KEY or FAL_KEY == "YOUR_FAL_KEY_HERE":
+    raise SystemExit(
+        "FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ"
+    )
+    
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
