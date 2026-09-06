@@ -6,6 +6,7 @@ import base64
 import logging
 import asyncio
 import datetime
+import requests
 import fal_client
 
 from zoneinfo import ZoneInfo
@@ -55,7 +56,6 @@ WEATHER_BROADCAST_HOUR = 6
 WEATHER_BROADCAST_MINUTE = 0
 MYANMAR_TZ = ZoneInfo("Asia/Yangon")
 
-# တိုင်းဒေသကြီး ၇ ခု + ပြည်နယ် ၇ ခု (Representative city per region)
 MYANMAR_REGIONS = [
     {"label": "ရန်ကုန်တိုင်းဒေသကြီး", "query": "Yangon, Myanmar"},
     {"label": "မန္တလေးတိုင်းဒေသကြီး", "query": "Mandalay, Myanmar"},
@@ -74,8 +74,6 @@ MYANMAR_REGIONS = [
     {"label": "ရှမ်းပြည်နယ်", "query": "Taunggyi, Myanmar"},
 ]
 
-# User message ထဲမှာ ရှာမယ့် မြို့/နေရာ နာမည်များ (myanmar + english variants)
-# key = search query အတွက် သုံးမယ့် တကယ့်နာမည်, value = message ထဲမှာ ကိုက်ညီရှာမယ့် keyword များ
 CITY_ALIASES = {
     "Yangon, Myanmar": ["ရန်ကုန်", "yangon", "rangoon"],
     "Mandalay, Myanmar": ["မန္တလေး", "mandalay"],
@@ -89,7 +87,7 @@ CITY_ALIASES = {
     "Loikaw, Myanmar": ["လွိုင်ကော်", "ကယား", "loikaw", "kayah"],
     "Hpa-An, Myanmar": ["ဘားအံ", "ကရင်", "hpa-an", "hpaan", "kayin"],
     "Hakha, Myanmar": ["ဟားခါး", "ချင်း", "hakha", "chin"],
-    "Mawlamyine, Myanmar": ["မော်လမြိုင်", "မွန်", "mawlamyine", "mon"],
+    "Mawlamyine, Myanmar": ["မော်လမြိုင်", "မုဒုံ", "ကျိုက်မရော", "မွန်", "mawlamyine", "mon"],
     "Sittwe, Myanmar": ["စစ်တွေ", "ရခိုင်", "sittwe", "rakhine"],
     "Taunggyi, Myanmar": ["တောင်ကြီး", "ရှမ်း", "taunggyi", "shan"],
     "Taunggyi, Myanmar#2": ["pyin oo lwin", "ပြင်ဦးလွင်"],
@@ -140,23 +138,13 @@ def is_weather_question(text: str) -> bool:
 
 
 def extract_city_query(text: str):
-    """
-    User message ထဲမှာ Myanmar မြို့/တိုင်း/ပြည်နယ် နာမည် တစ်ခုခု
-    ပါ/မပါ ရှာပေးမယ်။ တွေ့ရင် geocoding query name ကို ပြန်ပေးမယ်။
-    မတွေ့ရင် None ပြန်ပေးမယ်။
-    """
     if not text:
         return None
-
     text_lower = text.lower()
-
     for query_key, aliases in CITY_ALIASES.items():
         for alias in aliases:
             if alias.lower() in text_lower:
-                # "#2", "#3" စတာတွေကို ဖြုတ်ပြီး query name အစစ်ကို ပြန်ပေးမယ်
-                clean_query = query_key.split("#")[0]
-                return clean_query
-
+                return query_key.split("#")[0]
     return None
 
 
@@ -244,10 +232,6 @@ def format_weather_message(data: dict) -> str:
 
 
 def fetch_all_regions_summary() -> str:
-    """
-    တိုင်းဒေသကြီး ၇ ခု + ပြည်နယ် ၇ ခု ရဲ့
-    ရာသီဥတု အကျဉ်းချုပ်ကို တစ်ခါတည်း ဆွဲထုတ်မယ်
-    """
 
     lines = [
         "╔══════════════════════════════════════╗",
@@ -269,7 +253,7 @@ def fetch_all_regions_summary() -> str:
                 f"   {condition} | 🌡️ {temp}°C\n"
             )
 
-        except Exception as e:
+        except Exception:
             lines.append(
                 f"📍 {region['label']}\n"
                 f"   ⚠️ Data မရရှိပါ\n"
@@ -447,7 +431,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# DAILY WEATHER BROADCAST JOB (Admin လက်ဖြင့် မလိုအပ်ပါ)
+# DAILY WEATHER BROADCAST JOB
 # =========================================================
 
 async def daily_weather_broadcast(context: ContextTypes.DEFAULT_TYPE):
@@ -460,7 +444,7 @@ async def daily_weather_broadcast(context: ContextTypes.DEFAULT_TYPE):
             + await asyncio.to_thread(fetch_all_regions_summary)
         )
 
-    except Exception as e:
+    except Exception:
         logger.exception("Daily weather fetch error")
         return
 
@@ -493,32 +477,20 @@ def download_fal_image(result: dict) -> bytes:
     images = result.get("images")
 
     if not images:
-        raise RuntimeError(
-            "fal.ai က image result မပြန်ပေးပါ။"
-        )
+        raise RuntimeError("fal.ai က image result မပြန်ပေးပါ။")
 
     image_url = images[0].get("url")
 
     if not image_url:
-        raise RuntimeError(
-            "fal.ai result ထဲမှာ image URL မတွေ့ပါ။"
-        )
+        raise RuntimeError("fal.ai result ထဲမှာ image URL မတွေ့ပါ။")
 
-    response = requests.get(
-        image_url,
-        timeout=180
-    )
+    response = requests.get(image_url, timeout=180)
 
     if response.status_code != 200:
-        raise RuntimeError(
-            f"fal.ai image download HTTP "
-            f"{response.status_code}"
-        )
+        raise RuntimeError(f"fal.ai image download HTTP {response.status_code}")
 
     if not response.content:
-        raise RuntimeError(
-            "fal.ai image data အလွတ်ဖြစ်နေပါသည်။"
-        )
+        raise RuntimeError("fal.ai image data အလွတ်ဖြစ်နေပါသည်။")
 
     return response.content
 
@@ -526,9 +498,7 @@ def download_fal_image(result: dict) -> bytes:
 def generate_image(prompt: str) -> bytes:
 
     if not FAL_KEY or FAL_KEY == "YOUR_FAL_KEY_HERE":
-        raise RuntimeError(
-            "FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ။"
-        )
+        raise RuntimeError("FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ။")
 
     result = fal_client.subscribe(
         IMAGE_MODEL_NAME,
@@ -552,22 +522,12 @@ def generate_image(prompt: str) -> bytes:
 # FAL.AI IMAGE EDIT
 # =========================================================
 
-def edit_image(
-    image_bytes: bytes,
-    prompt: str
-) -> bytes:
+def edit_image(image_bytes: bytes, prompt: str) -> bytes:
 
     if not FAL_KEY or FAL_KEY == "YOUR_FAL_KEY_HERE":
-        raise RuntimeError(
-            "FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ။"
-        )
+        raise RuntimeError("FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ။")
 
-    # Telegram ကရလာတဲ့ image bytes ကို
-    # fal.ai အတွက် Data URL ပြောင်းမယ်
-    image_data_url = fal_client.encode(
-        image_bytes,
-        "image/jpeg"
-    )
+    image_data_url = fal_client.encode(image_bytes, "image/jpeg")
 
     result = fal_client.subscribe(
         EDIT_MODEL_NAME,
@@ -629,7 +589,7 @@ async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     except Exception as e:
-        logger.exception("Pollinations image generation error")
+        logger.exception("fal.ai image generation error")
         error_text = str(e)
 
         try:
@@ -667,7 +627,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================================================
-# BROADCAST (Admin manual broadcast - ဆက်ထားချင်ရင် ဆက်သုံးလို့ရပါတယ်)
+# BROADCAST
 # =========================================================
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -749,10 +709,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user:
         all_user_ids.add(user.id)
 
-    # -----------------------------------------------------
-    # WEATHER QUESTION DETECTION (command မလို - စကားပြောရုံနဲ့)
-    # -----------------------------------------------------
-
     if is_weather_question(user_text):
 
         city_query = extract_city_query(user_text)
@@ -781,10 +737,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-    # -----------------------------------------------------
-    # Previous image edit
-    # -----------------------------------------------------
-
     if is_edit_request(user_text) and chat_id in last_images:
 
         await context.bot.send_chat_action(chat_id=chat_id, action="upload_photo")
@@ -809,7 +761,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         except Exception as e:
-            logger.exception("Pollinations edit error")
+            logger.exception("fal.ai edit error")
             try:
                 await status_message.edit_text(
                     "❌ ပုံပြင်လို့မရပါ။\n\n" f"🔧 Error:\n{str(e)[:1000]}" + CREDIT
@@ -820,10 +772,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
         return
-
-    # -----------------------------------------------------
-    # NORMAL GROQ CHAT
-    # -----------------------------------------------------
 
     history = user_histories.setdefault(chat_id, [])
     history.append({"role": "user", "content": user_text})
@@ -840,7 +788,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply_text = response.choices[0].message.content
 
-    except Exception as e:
+    except Exception:
         logger.exception("Groq API error")
         await update.message.reply_text(
             "❌ တောင်းပန်ပါတယ်။\n\nAI Server မှာ အမှားတစ်ခု ဖြစ်သွားပါသည်။\nခဏနေပြီး ပြန်မေးကြည့်ပါ။"
@@ -874,7 +822,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_bytes = bytes(await photo_file.download_as_bytearray())
         last_images[chat_id] = photo_bytes
 
-    except Exception as e:
+    except Exception:
         logger.exception("Telegram image download error")
         await message.reply_text(
             "❌ ပုံကို download လုပ်ရာမှာ အမှားတစ်ခု ဖြစ်သွားပါသည်။" + CREDIT
@@ -904,7 +852,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         except Exception as e:
-            logger.exception("Pollinations photo edit error")
+            logger.exception("fal.ai photo edit error")
             try:
                 await status_message.edit_text(
                     "❌ ပုံပြင်လို့မရပါ။\n\n" f"🔧 Error:\n{str(e)[:1000]}" + CREDIT
@@ -940,7 +888,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         reply_text = response.choices[0].message.content
 
-    except Exception as e:
+    except Exception:
         logger.exception("Groq Vision API error")
         await message.reply_text(
             "❌ တောင်းပန်ပါတယ်။\n\nပုံကို ကြည့်ရာတွင် အမှားတစ်ခု ဖြစ်သွားပါသည်။\nခဏနေပြီး ပြန်ကြိုးစားကြည့်ပါ။"
@@ -969,8 +917,8 @@ def main():
         raise SystemExit("GROQ_API_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
 
     if not FAL_KEY or FAL_KEY == "YOUR_FAL_KEY_HERE":
-       raise SystemExit("FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
-    
+        raise SystemExit("FAL_KEY ကို Railway Variables ထဲမှာ ထည့်ပါ")
+
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
